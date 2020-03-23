@@ -1,0 +1,243 @@
+---
+title: "Informatics C Tutorial Workshop Allocation"
+author: "Dennis Wollersheim"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+        html_document:
+           toc: false
+---
+
+```{r include=FALSE}
+
+library(tidyverse)
+library(janitor)
+library(readxl)
+
+read_csv('data/2020-HIM4HICHIM5IHC Grades-20200322_1039-comma_separated.csv') %>%
+  clean_names() %>%
+  rename( id = la_trobe_student_id  ) %>%
+  { . } -> df_grades
+
+read_csv('data/Groupself_selection_2020_HIM4HICHIM5IHC_2020_03_22.csv') %>%
+  clean_names() %>%
+  select( group_name, starts_with('member_')) %>%
+  select( group_name, ends_with('id_number')) %>%
+  pivot_longer(-group_name, values_to='id', values_drop_na=TRUE) %>%
+  select(-name) %>%
+  rename( subgroup = group_name) %>%
+  { . } -> df_subgroup
+
+read_excel('data/2020_HIM4HICHIM5IHC_When_do_you_want_your_online_zoom_session.xlsx') %>%
+  clean_names() %>%
+  rename( id = la_trobe_student_id  ) %>%
+  mutate( id = as.numeric(id)  ) %>%
+  distinct(id, group) %>%
+  separate(group, paste0('group_',1:5), 'z') %>%
+  select(-group_1) %>%
+  pivot_longer(-id, values_drop_na=TRUE) %>%
+  select(-name) %>%
+  filter(!str_detect(value, '-LT01')) %>%
+  filter(!str_detect(value, 'Campus-')) %>%
+  { . } -> df_student
+
+df_student %>%
+  filter(  str_detect(value,'-Subject')) %>%
+  mutate( class = str_replace(value, 'AutoGroup-Subject Code-','')) %>%
+  select(-value) %>%
+  { . } -> df_class
+
+df_student %>%
+  filter(  str_detect(value,'^Allocate')) %>%
+  mutate( value = str_replace(value, 'Allocate_Plus-CL0._0._','')) %>%
+  mutate( tute = str_replace(value, '_[A-Z]{2}$','')) %>%
+  select(-value) %>%
+  { . } -> df_tute
+
+
+
+read_excel('data/2020_HIM4HICHIM5IHC_When_do_you_want_your_online_zoom_session.xlsx') %>%
+  clean_names() %>%
+  rename( id = la_trobe_student_id  ) %>%
+  mutate( id = as.numeric(id)  ) %>%
+  select( -group) %>%
+  { . } -> df_choice
+
+
+df_choice %>%
+  inner_join(df_subgroup) %>%
+  inner_join( df_tute) %>%
+  inner_join( df_class) %>%
+#  inner_join( df_final, by='subgroup') %>%
+#  filter( choice==assigned) %>%
+  count( choice, subgroup, tute, class, sort=TRUE) %>%
+  filter( tute=='Wed_11:00') %>%
+  arrange( subgroup, n) %>% View
+
+
+tribble( ~subgroup, ~assigned,
+          'Rhun', 'Thursday 1-3pm',
+          'Adorn', 'Wednesday 2pm-4pm',
+          'Aglarond', 'Thursday 1-3pm',
+          'Aldburg', 'Thursday 9-11am',
+          'Forest River', 'Wednesday 11am-1pm',
+          'Death Down', 'Thursday 11-1pm',
+) %>%
+inner_join( df_subgroup) %>%
+#count(assigned) %>%
+{ . } -> df_final
+
+
+# How many full now
+df_final %>%
+  ungroup() %>%
+  count( assigned) %>%
+  filter( n > 7 ) %>%
+  rename( choice = assigned) %>%
+  { . } -> df_full
+
+
+df_choice %>%
+  anti_join( df_final ) %>%
+  count( id, sort=TRUE) %>%
+  filter(n==1) %>%
+  inner_join( df_choice) %>%
+  filter( !str_detect( choice, '^Not')) %>%
+  mutate(assigned=choice) %>%
+  select( id, assigned) %>%
+  { . } -> df_singles
+
+df_final %>%
+  bind_rows( df_singles) %>%
+  { . } -> df_final
+
+
+# how many not taken
+df_choice %>%
+  anti_join( df_final ) %>%
+  filter( !str_detect( choice, '^Not')) %>%
+  anti_join( df_full ) %>%
+  count( choice, sort=TRUE)
+
+df_choice %>%
+  anti_join( df_final ) %>%
+  filter( !str_detect( choice, '^Not')) %>%
+  anti_join( df_full ) %>%
+  filter( choice %in% c("Wednesday 4pm-6pm", "Thursday 9-11am")) %>%
+  group_by( id ) %>%
+  filter( choice ==max(choice)) %>%
+  ungroup() %>%
+  rename(assigned=choice) %>%
+  select( id, assigned) %>%
+  bind_rows(df_final) %>%
+  { . } -> df_final
+
+df_choice %>%
+  anti_join( df_final ) %>%
+  filter( !str_detect( choice, '^Not')) %>%
+  anti_join( df_full ) %>%
+  filter( choice == "Wednesday 2pm-4pm" ) %>%
+  mutate(assigned=choice) %>%
+  select( id, assigned) %>%
+  bind_rows(df_final) %>%
+  { . } -> df_final
+
+#Ilhan
+df_choice %>%
+  anti_join( df_final ) %>%
+  filter( id == 19666575 ) %>%
+  mutate(assigned='Wednesday 11am-1pm') %>%
+  select( id, assigned) %>%
+  bind_rows(df_final) %>%
+  { . } -> df_final
+
+#
+df_choice %>%
+  anti_join( df_final ) %>%
+  filter( str_detect( choice, 'Thursday' ) ) %>%
+  mutate(assigned=choice) %>%
+  select( id, assigned) %>%
+  bind_rows(df_final) %>%
+  { . } -> df_final
+
+
+
+
+#
+df_choice %>%
+  anti_join( df_final ) %>%
+  inner_join( df_tute) %>%
+  filter( str_detect( tute, '16' ) ) %>%
+  mutate(assigned= "Wednesday 4pm-6pm" ) %>%
+  select( id, assigned) %>%
+  bind_rows(df_final) %>%
+  { . } -> df_final
+
+# Randomly assign the rest
+df_final %>%
+  count( assigned) %>%
+  rowwise() %>%
+  mutate( spot = rep.int(assigned, (11-n)) %>% list() ) %>%
+  unnest( spot ) %>%
+  mutate(prob = sample.int(n())) %>%
+  arrange(prob) %>%
+  select( assigned) %>%
+  head(4) %>%
+  pluck('assigned') %>%
+  { . } -> assigned_groups
+
+df_choice %>%
+  anti_join( df_final ) %>%
+  mutate(assigned=assigned_groups) %>%
+  select( id, assigned) %>%
+  bind_rows(df_final) %>%
+  { . } -> df_final
+
+df_final %>%
+  inner_join( df_grades ) %>%
+  rename( userid=id) %>%
+  mutate( group = str_replace_all( assigned, ' ', '_')) %>%
+  select( userid, group  ) %>%
+  mutate(grouping='New_Tutorials') %>%
+  write_csv('/tmp/out.csv')
+
+```
+
+# Tutorial sizes and times
+
+```{r full, echo=FALSE}
+
+df_final %>%
+  ungroup() %>%
+  count( assigned) %>%
+  rename( tutorial_time = assigned) %>%
+  rename( number_of_people = n) %>%
+  kableExtra::kable()
+
+```
+
+
+
+# Tutorial Allocation Listing
+ - listing in surname order
+ - Students were first allocated by subgroup, and then by choice  
+ - Contact me if you cannot attend your allocated tutorial.  
+ - People who did not make a choice were randomly allocated.
+
+
+```{r echo=FALSE}
+
+df_final %>%
+  inner_join( df_grades, by='id' ) %>%
+  arrange( surname, first_name) %>%
+  select( first_name, surname, assigned, subgroup) %>%
+  rename( tutorial_time = assigned) %>%
+  rename( tutorial_subgroup = subgroup) %>%
+  replace_na( list(tutorial_subgroup='')) %>%
+  kableExtra::kable()
+
+#library('rmarkdown')
+
+#render('allocate.Rmd', pdf_document())
+
+```
+
